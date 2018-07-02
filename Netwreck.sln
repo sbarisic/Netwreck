@@ -1,0 +1,31 @@
+﻿
+Microsoft Visual Studio Solution File, Format Version 12.00
+# Visual Studio 15
+VisualStudioVersion = 15.0.27130.2027
+MinimumVisualStudioVersion = 10.0.40219.1
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Netwreck", "Netwreck\Netwreck.csproj", "{860D1D9D-7EC3-46A5-99D1-601B24A7526A}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Test", "Test\Test.csproj", "{6689E0D1-9540-4C0D-B11B-FD00A804EADB}"
+EndProject
+Global
+	GlobalSection(SolutionConfigurationPlatforms) = preSolution
+		Debug|Any CPU = Debug|Any CPU
+		Release|Any CPU = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(ProjectConfigurationPlatforms) = postSolution
+		{860D1D9D-7EC3-46A5-99D1-601B24A7526A}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{860D1D9D-7EC3-46A5-99D1-601B24A7526A}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{860D1D9D-7EC3-46A5-99D1-601B24A7526A}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{860D1D9D-7EC3-46A5-99D1-601B24A7526A}.Release|Any CPU.Build.0 = Release|Any CPU
+		{6689E0D1-9540-4C0D-B11B-FD00A804EADB}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{6689E0D1-9540-4C0D-B11B-FD00A804EADB}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{6689E0D1-9540-4C0D-B11B-FD00A804EADB}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{6689E0D1-9540-4C0D-B11B-FD00A804EADB}.Release|Any CPU.Build.0 = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(SolutionProperties) = preSolution
+		HideSolutionNode = FALSE
+	EndGlobalSection
+	GlobalSection(ExtensibilityGlobals) = postSolution
+		SolutionGuid = {7A68BB28-3D6F-4F59-B51B-3B938E9F4B28}
+	EndGlobalSection
+EndGlobal
