@@ -7,7 +7,7 @@
     <ProjectGuid>{860D1D9D-7EC3-46A5-99D1-601B24A7526A}</ProjectGuid>
     <OutputType>Library</OutputType>
     <AppDesignerFolder>Properties</AppDesignerFolder>
-    <RootNamespace>Netwreck</RootNamespace>
+    <RootNamespace>Netwrecking</RootNamespace>
     <AssemblyName>Netwreck</AssemblyName>
     <TargetFrameworkVersion>v4.6.2</TargetFrameworkVersion>
     <FileAlignment>512</FileAlignment>
