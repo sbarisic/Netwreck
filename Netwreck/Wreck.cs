@@ -8,6 +8,7 @@ using System.Net;
 using System.Net.Sockets;
 using System.Threading;
 using System.Runtime.InteropServices;
+using System.IO;
 
 namespace Netwrecking {
 	public class NetPacket {
@@ -19,20 +20,50 @@ namespace Netwrecking {
 	}
 
 
-	struct WreckMessage {
+	struct WreckMessage : NetworkSerializable {
 		public enum MessageType : int {
 			None = 0,
 			BeginMessage,
+			BeginMessageACK,
 			MessageData,
 			EndMessage
 		}
 
+		public int MessageNumber;
 		public int PacketNumber;
 		public MessageType Type;
+		public byte[] Data;
 
-		public WreckMessage(int PacketNumber, MessageType Type) {
+		public WreckMessage(int MessageNumber, int PacketNumber, MessageType Type) {
+			this.MessageNumber = MessageNumber;
 			this.PacketNumber = PacketNumber;
 			this.Type = Type;
+			this.Data = null;
+		}
+
+		public void Serialize(BinaryWriter Writer) {
+			Writer.Write(MessageNumber);
+			Writer.Write(PacketNumber);
+			Writer.Write((int)Type);
+
+			if (Data == null)
+				Writer.Write(0);
+
+			Writer.Write(Data.Length);
+			Writer.Write(Data);
+		}
+
+		public void Deserialize(BinaryReader Reader) {
+			MessageNumber = Reader.ReadInt32();
+			PacketNumber = Reader.ReadInt32();
+			Type = (MessageType)Reader.ReadInt32();
+
+			int Len = Reader.ReadInt32();
+
+			if (Len == 0)
+				Data = null;
+			else
+				Data = Reader.ReadBytes(Len);
 		}
 	}
 
@@ -100,21 +131,36 @@ namespace Netwrecking {
 			SendRaw(Data, CreateEndPoint(IP, Port));
 		}
 
-		public NetPacket ReceiveRaw() {
-			NetPacket Packet = AllocPacket();
-			Packet.Sender = new IPEndPoint(IPAddress.Any, Port);
-			Packet.RawData = UDP.Receive(ref Packet.Sender);
-			return Packet;
+		public byte[] ReceiveRaw(out IPEndPoint Sender) {
+			Sender = new IPEndPoint(IPAddress.Any, Port);
+			return UDP.Receive(ref Sender);
 		}
 
-		// Methods that do automatic fragmentation
+		void SendMessage(WreckMessage Msg, IPEndPoint EndPoint) {
+			SendRaw(WreckUtils.Serialize(Msg), EndPoint);
+		}
+
+		WreckMessage ReceiveMessage() {
+			byte[] Data = ReceiveRaw(out IPEndPoint EndPoint);
+			return WreckUtils.Deserialize<WreckMessage>(Data);
+		}
+
+		// -------------------------------------------------------------------------------------------------------------------
 
 		public void Send(byte[] Data, IPEndPoint EndPoint) {
 			byte[][] Packets = WreckUtils.BufferSplit(Data, MaxDataSize);
 
+			SendMessage(new WreckMessage(0, 0, WreckMessage.MessageType.BeginMessage), EndPoint);
+			WreckMessage Msg = ReceiveMessage();
+
+
 			foreach (var Packet in Packets) {
 				SendRaw(Packet, EndPoint);
 			}
+		}
+
+		public byte[] Receive() {
+			return null;
 		}
 	}
 }

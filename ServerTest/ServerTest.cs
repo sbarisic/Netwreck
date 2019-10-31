@@ -11,11 +11,11 @@ namespace ServerTest {
 			Console.Title = "Server Test";
 			NetWreck NW = new NetWreck(42000);
 
-			while (true) {
+			/*while (true) {
 				NetPacket Packet = NW.ReceiveRaw();
 				Console.WriteLine("Received packet!");
 				NW.FreePacket(Packet);
-			}
+			}*/
 		}
 	}
 }

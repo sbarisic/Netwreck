@@ -4,6 +4,7 @@ using System.Linq;
 using System.Text;
 using System.Threading.Tasks;
 using System.Threading;
+using System.IO;
 
 namespace Netwrecking {
 	internal static class WreckUtils {
@@ -23,6 +24,27 @@ namespace Netwrecking {
 			}
 
 			return Blocks;
+		}
+
+		public static byte[] Serialize<T>(T Ser) where T : NetworkSerializable {
+			using (MemoryStream MS = new MemoryStream())
+			using (BinaryWriter Writer = new BinaryWriter(MS)) {
+				Ser.Serialize(Writer);
+				return MS.ToArray();
+			}
+		}
+
+		public static T Deserialize<T>(byte[] Data) where T : NetworkSerializable, new() {
+			T Obj = new T();
+
+			using (MemoryStream MS = new MemoryStream(Data)) {
+				MS.Seek(0, SeekOrigin.Begin);
+
+				using (BinaryReader Reader = new BinaryReader(MS))
+					Obj.Deserialize(Reader);
+			}
+
+			return Obj;
 		}
 	}
 }

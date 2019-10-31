@@ -17,12 +17,12 @@ namespace ClientTest {
 
 			
 
-			while (true) {
+			/*while (true) {
 				Console.Write("Input: ");
 				string In = Console.ReadLine();
 
 				NW.SendRaw(Encoding.UTF8.GetBytes(In), ServerEndPoint);
-			}
+			}*/
 		}
 	}
 }
