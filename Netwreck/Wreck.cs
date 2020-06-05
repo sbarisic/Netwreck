@@ -20,7 +20,7 @@ namespace Netwrecking {
 	}
 
 
-	struct WreckMessage : NetworkSerializable {
+	/*struct WreckMessage : NetworkSerializable {
 		public enum MessageType : int {
 			None = 0,
 			BeginMessage,
@@ -65,7 +65,7 @@ namespace Netwrecking {
 			else
 				Data = Reader.ReadBytes(Len);
 		}
-	}
+	}*/
 
 	public unsafe class NetWreck {
 		const int MaxDataSize = 1024;
@@ -136,7 +136,7 @@ namespace Netwrecking {
 			return UDP.Receive(ref Sender);
 		}
 
-		void SendMessage(WreckMessage Msg, IPEndPoint EndPoint) {
+		/*void SendMessage(WreckMessage Msg, IPEndPoint EndPoint) {
 			SendRaw(WreckUtils.Serialize(Msg), EndPoint);
 		}
 
@@ -161,6 +161,6 @@ namespace Netwrecking {
 
 		public byte[] Receive() {
 			return null;
-		}
+		}*/
 	}
 }
