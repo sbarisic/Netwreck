@@ -8,84 +8,103 @@ using System.Net;
 using System.Net.Sockets;
 using System.Threading;
 using System.Runtime.InteropServices;
+using System.Buffers;
 using System.IO;
 
 namespace Netwrecking {
 	public class NetPacket {
-		public IPEndPoint Sender;
-		public byte[] RawData;
+		public NetWreckClient Sender;
+		public int PacketNum;
+		public byte[] Payload;
 
 		internal NetPacket() {
 		}
 	}
 
+	public unsafe class NetWreckClient {
+		public IPEndPoint SenderEndPoint;
 
-	/*struct WreckMessage : NetworkSerializable {
-		public enum MessageType : int {
-			None = 0,
-			BeginMessage,
-			BeginMessageACK,
-			MessageData,
-			EndMessage
+		internal NetWreckClient(IPEndPoint SenderEndPoint) {
+			this.SenderEndPoint = SenderEndPoint;
 		}
+	}
 
-		public int MessageNumber;
-		public int PacketNumber;
-		public MessageType Type;
-		public byte[] Data;
-
-		public WreckMessage(int MessageNumber, int PacketNumber, MessageType Type) {
-			this.MessageNumber = MessageNumber;
-			this.PacketNumber = PacketNumber;
-			this.Type = Type;
-			this.Data = null;
-		}
-
-		public void Serialize(BinaryWriter Writer) {
-			Writer.Write(MessageNumber);
-			Writer.Write(PacketNumber);
-			Writer.Write((int)Type);
-
-			if (Data == null)
-				Writer.Write(0);
-
-			Writer.Write(Data.Length);
-			Writer.Write(Data);
-		}
-
-		public void Deserialize(BinaryReader Reader) {
-			MessageNumber = Reader.ReadInt32();
-			PacketNumber = Reader.ReadInt32();
-			Type = (MessageType)Reader.ReadInt32();
-
-			int Len = Reader.ReadInt32();
-
-			if (Len == 0)
-				Data = null;
-			else
-				Data = Reader.ReadBytes(Len);
-		}
-	}*/
+	public delegate void OnClientConnectedFunc(NetWreckClient Cli);
+	public delegate void OnClientDisconnectedFunc(NetWreckClient Cli);
+	public delegate void OnPacketReceivedFunc(NetPacket Packet);
 
 	public unsafe class NetWreck {
+		const bool IS_DEBUG = true;
 		const int MaxDataSize = 1024;
-		const bool ARTIFICAL_DELAY = false;
 
 		public static IPEndPoint CreateEndPoint(string IP, int Port) {
 			return new IPEndPoint(IPAddress.Parse(IP), Port);
 		}
 
 		ConcurrentQueue<NetPacket> PacketPool;
+		ArrayPool<byte> ByteArrayPool;
+		List<NetWreckClient> ServerClientList;
+
 		UdpClient UDP;
 		int Port;
 
-		public NetWreck(int Port, int PacketPoolSize = 128) {
+		bool IsServer;
+		NetWreckClient ServerConnectionClient;
+
+		public event OnClientConnectedFunc OnClientConnected;
+		public event OnClientDisconnectedFunc OnClientDisconnected;
+		public event OnPacketReceivedFunc OnPacketReceived;
+
+		public NetWreck(int Port, bool IsServer = false, int PacketPoolSize = 128) {
 			PacketPool = new ConcurrentQueue<NetPacket>();
 			for (int i = 0; i < PacketPoolSize; i++)
 				PacketPool.Enqueue(new NetPacket());
 
 			UDP = new UdpClient(Port);
+			UDP.DontFragment = true;
+
 			this.Port = Port;
+			this.IsServer = IsServer;
+
+			ByteArrayPool = ArrayPool<byte>.Create();
+			ServerClientList = new List<NetWreckClient>();
+		}
+
+		public void ConnectToServer(IPEndPoint Server) {
+			ServerConnectionClient = new NetWreckClient(Server);
+		}
+
+		void Update() {
+			IPEndPoint Sender = IsServer ? null : ServerConnectionClient.SenderEndPoint;
+			byte[] Raw = ReceiveRaw(ref Sender);
+
+			NetWreckClient Cli = IsServer ? FindOrCreateClient(Sender) : ServerConnectionClient;
+
+
+
+		}
+
+		NetWreckClient FindOrCreateClient(IPEndPoint EndPoint) {
+			foreach (var C in ServerClientList) {
+				if (C.SenderEndPoint == EndPoint)
+					return C;
+			}
+
+			NetWreckClient Cli = new NetWreckClient(EndPoint);
+			ServerClientList.Add(Cli);
+			OnClientConnected?.Invoke(Cli);
+			return Cli;
+		}
+
+		public void StartUpdateLoop() {
+			Thread UpdateThread = new Thread(() => {
+				while (true) {
+					Update();
+				}
+			});
+
+			UpdateThread.IsBackground = true;
+			UpdateThread.Start();
 		}
 
 		public void FreePacket(NetPacket Packet) {
@@ -107,14 +126,11 @@ namespace Netwrecking {
 
 		// Raw methods
 
-		public void SendRaw(byte[] Data, IPEndPoint EndPoint) {
+		public void SendRaw(byte[] Data, int Length, IPEndPoint EndPoint) {
 			if (Data.Length > MaxDataSize)
 				throw new Exception("Data packet too large");
 
-			if (ARTIFICAL_DELAY)
-				WreckUtils.RandomDelay();
-
-			UDP.Send(Data, Data.Length, EndPoint);
+			UDP.Send(Data, Length, EndPoint);
 		}
 
 		public void SendRaw<T>(T Msg, IPEndPoint EndPoint) where T : unmanaged {
@@ -124,17 +140,30 @@ namespace Netwrecking {
 			for (int i = 0; i < MsgBuffer.Length; i++)
 				MsgBuffer[i] = ((byte*)MsgPtr)[i];
 
-			SendRaw(MsgBuffer, EndPoint);
+			SendRaw(MsgBuffer, MsgBuffer.Length, EndPoint);
 		}
 
-		public void SendRaw(byte[] Data, string IP, int Port) {
-			SendRaw(Data, CreateEndPoint(IP, Port));
+		void SendRaw(byte[] Data, string IP, int Port) {
+			SendRaw(Data, Data.Length, CreateEndPoint(IP, Port));
 		}
 
-		public byte[] ReceiveRaw(out IPEndPoint Sender) {
-			Sender = new IPEndPoint(IPAddress.Any, Port);
+		byte[] ReceiveRaw(ref IPEndPoint Sender) {
+			if (Sender == null)
+				Sender = new IPEndPoint(IPAddress.Any, Port);
+
 			return UDP.Receive(ref Sender);
 		}
+
+		/*void SendPacket(NetPacket P, string IP, int Port) {
+
+			SendRaw(P.RawData, CreateEndPoint(IP, Port));
+		}
+
+		NetPacket ReceivePacket() {
+			NetPacket P = AllocPacket();
+			P.RawData = ReceiveRaw(out P.Sender);
+			return P;
+		}*/
 
 		/*void SendMessage(WreckMessage Msg, IPEndPoint EndPoint) {
 			SendRaw(WreckUtils.Serialize(Msg), EndPoint);
