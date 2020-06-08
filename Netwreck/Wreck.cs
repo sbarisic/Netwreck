@@ -10,25 +10,80 @@ using System.Threading;
 using System.Runtime.InteropServices;
 using System.Buffers;
 using System.IO;
+using System.Diagnostics;
 
 namespace Netwrecking {
-	public class NetPacket {
+	public enum ClientState : byte {
+		Disconnected = 0,
+		Connecting,
+		Connected,
+	}
+
+	public enum PacketType : byte {
+		Default = 0,
+		ConnectionRequest,
+		ConnectionAccept,
+		ConnectionReject,
+		Disconnect,
+	}
+
+	public class NetPacket : NetworkSerializable {
+		const int PacketHashNum = 0x522A07BF;
+
 		public NetWreckClient Sender;
+
 		public int PacketNum;
+		public PacketType Type;
 		public byte[] Payload;
 
+		internal bool PacketValid;
+
 		internal NetPacket() {
+		}
+
+		public void Serialize(BinaryWriter Writer) {
+			Writer.Write(PacketHashNum);
+
+			Writer.Write((byte)Type);
+			Writer.Write((ushort)Payload.Length);
+			Writer.Write(Payload);
+		}
+
+		public void Deserialize(BinaryReader Reader) {
+			PacketValid = true;
+
+			if (Reader.ReadInt32() != PacketHashNum) {
+				PacketValid = false;
+				return;
+			}
+
+			Type = (PacketType)Reader.ReadByte();
+			Payload = Reader.ReadBytes(Reader.ReadUInt16());
 		}
 	}
 
 	public unsafe class NetWreckClient {
 		public IPEndPoint SenderEndPoint;
 
+		public ClientState State {
+			get;
+			internal set;
+		}
+
+		internal double TimeSent;
+		internal double TimeReceived;
+
 		internal NetWreckClient(IPEndPoint SenderEndPoint) {
 			this.SenderEndPoint = SenderEndPoint;
+			TimeSent = double.NegativeInfinity;
+		}
+
+		public override string ToString() {
+			return SenderEndPoint.ToString();
 		}
 	}
 
+	public delegate void OnClientConnectingFunc(NetWreckClient Cli, NetPacket Packet);
 	public delegate void OnClientConnectedFunc(NetWreckClient Cli);
 	public delegate void OnClientDisconnectedFunc(NetWreckClient Cli);
 	public delegate void OnPacketReceivedFunc(NetPacket Packet);
@@ -41,6 +96,8 @@ namespace Netwrecking {
 			return new IPEndPoint(IPAddress.Parse(IP), Port);
 		}
 
+		Stopwatch SWatch;
+
 		ConcurrentQueue<NetPacket> PacketPool;
 		ArrayPool<byte> ByteArrayPool;
 		List<NetWreckClient> ServerClientList;
@@ -51,11 +108,14 @@ namespace Netwrecking {
 		bool IsServer;
 		NetWreckClient ServerConnectionClient;
 
+		public event OnClientConnectingFunc OnClientConnecting;
 		public event OnClientConnectedFunc OnClientConnected;
 		public event OnClientDisconnectedFunc OnClientDisconnected;
 		public event OnPacketReceivedFunc OnPacketReceived;
 
 		public NetWreck(int Port, bool IsServer = false, int PacketPoolSize = 128) {
+			SWatch = Stopwatch.StartNew();
+
 			PacketPool = new ConcurrentQueue<NetPacket>();
 			for (int i = 0; i < PacketPoolSize; i++)
 				PacketPool.Enqueue(new NetPacket());
@@ -70,36 +130,219 @@ namespace Netwrecking {
 			ServerClientList = new List<NetWreckClient>();
 		}
 
-		public void ConnectToServer(IPEndPoint Server) {
-			ServerConnectionClient = new NetWreckClient(Server);
+		double Timestamp() {
+			return SWatch.Elapsed.TotalMilliseconds;
 		}
 
-		void Update() {
-			IPEndPoint Sender = IsServer ? null : ServerConnectionClient.SenderEndPoint;
-			byte[] Raw = ReceiveRaw(ref Sender);
+		public double LastSendTime(NetWreckClient Cli) {
+			return Timestamp() - Cli.TimeSent;
+		}
 
-			NetWreckClient Cli = IsServer ? FindOrCreateClient(Sender) : ServerConnectionClient;
+		public double LastReceiveTime(NetWreckClient Cli) {
+			return Timestamp() - Cli.TimeReceived;
+		}
 
+		public void ConnectToServer(IPEndPoint Server) {
+			ServerConnectionClient = new NetWreckClient(Server);
+			ServerConnectionClient.State = ClientState.Connecting;
+		}
 
+		void UpdateServer() {
+			IPEndPoint Sender = null;
 
+			if (ReceiveRaw(ref Sender, out byte[] Raw)) {
+				NetPacket Packet = AllocPacket();
+				WreckUtils.Deserialize(Raw, ref Packet);
+
+				if (!Packet.PacketValid) {
+					if (IS_DEBUG)
+						Console.WriteLine("Dropping invalid packet");
+
+					return;
+				}
+
+				NetWreckClient Cli = FindOrCreateClient(Sender);
+
+				Cli.TimeReceived = Timestamp();
+				Packet.Sender = Cli;
+
+				switch (Cli.State) {
+					case ClientState.Connecting: {
+							if (OnClientConnecting != null)
+								OnClientConnecting(Cli, Packet);
+							else
+								AcceptConnection(Cli);
+							break;
+						}
+
+					case ClientState.Connected: {
+							if (Packet.Type == PacketType.ConnectionRequest) {
+								AcceptConnection(Cli);
+								break;
+							}
+
+							OnPacketReceived?.Invoke(Packet);
+							break;
+						}
+
+					case ClientState.Disconnected: {
+							Disconnect(Cli);
+							break;
+						}
+
+					default:
+						throw new NotImplementedException();
+				}
+
+				FreePacket(Packet);
+			}
+
+			NetWreckClient[] Clients = ServerClientList.ToArray();
+			foreach (var C in Clients) {
+				double LastReceived = LastReceiveTime(C);
+
+				if (LastReceived > 10000)
+					ServerClientList.Remove(C);
+
+				if (LastReceived > 2000)
+					Disconnect(C);
+			}
+		}
+
+		void UpdateClient() {
+			if (ServerConnectionClient == null)
+				return;
+
+			IPEndPoint ServerEndPoint = ServerConnectionClient.SenderEndPoint;
+
+			if (ReceiveRaw(ref ServerEndPoint, out byte[] Raw)) {
+				NetPacket Packet = AllocPacket();
+				WreckUtils.Deserialize(Raw, ref Packet);
+
+				if (!Packet.PacketValid) {
+					if (IS_DEBUG)
+						Console.WriteLine("Dropping invalid packet");
+
+					return;
+				}
+
+				ServerConnectionClient.TimeReceived = Timestamp();
+				Packet.Sender = ServerConnectionClient;
+
+				switch (ServerConnectionClient.State) {
+					case ClientState.Connecting:
+						if (Packet.Type == PacketType.ConnectionAccept) {
+							ServerConnectionClient.State = ClientState.Connected;
+							OnClientConnected?.Invoke(ServerConnectionClient);
+							break;
+						}
+
+						break;
+
+					case ClientState.Connected:
+						if (Packet.Type == PacketType.ConnectionAccept)
+							break;
+
+						if (Packet.Type == PacketType.Disconnect) {
+							Disconnect(ServerConnectionClient);
+							break;
+						}
+
+						OnPacketReceived?.Invoke(Packet);
+						break;
+
+					case ClientState.Disconnected:
+						break;
+
+					default:
+						throw new NotImplementedException();
+				}
+
+				FreePacket(Packet);
+			}
+
+			if (ServerConnectionClient.State == ClientState.Connecting) {
+				// If last packet sent was more than half a second ago, try again
+				if (LastSendTime(ServerConnectionClient) > 500) {
+					NetPacket P = AllocPacket();
+					P.PacketNum = 0;
+					P.Payload = new byte[0];
+					P.Type = PacketType.ConnectionRequest;
+					SendPacket(P, ServerConnectionClient);
+					FreePacket(P);
+				}
+			}
+		}
+
+		public void AcceptConnection(NetWreckClient Cli) {
+			NetPacket P = AllocPacket();
+			P.PacketNum = 0;
+			P.Payload = new byte[0];
+			P.Type = PacketType.ConnectionAccept;
+			SendPacket(P, Cli);
+			FreePacket(P);
+
+			if (Cli.State != ClientState.Connected) {
+				Cli.State = ClientState.Connected;
+				OnClientConnected?.Invoke(Cli);
+			}
+		}
+
+		public void RejectConnection(NetWreckClient Cli) {
+			NetPacket P = AllocPacket();
+			P.PacketNum = 0;
+			P.Payload = new byte[0];
+			P.Type = PacketType.ConnectionReject;
+			SendPacket(P, Cli);
+			FreePacket(P);
+		}
+
+		public void Disconnect(NetWreckClient Cli) {
+			NetPacket P = AllocPacket();
+			P.PacketNum = 0;
+			P.Payload = new byte[0];
+			P.Type = PacketType.Disconnect;
+			SendPacket(P, Cli);
+			FreePacket(P);
+
+			if (Cli.State != ClientState.Disconnected) {
+				Cli.State = ClientState.Disconnected;
+				OnClientDisconnected?.Invoke(Cli);
+			}
 		}
 
 		NetWreckClient FindOrCreateClient(IPEndPoint EndPoint) {
 			foreach (var C in ServerClientList) {
-				if (C.SenderEndPoint == EndPoint)
+				if (C.SenderEndPoint.Equals(EndPoint))
 					return C;
 			}
 
 			NetWreckClient Cli = new NetWreckClient(EndPoint);
+			Cli.State = ClientState.Connecting;
 			ServerClientList.Add(Cli);
-			OnClientConnected?.Invoke(Cli);
 			return Cli;
 		}
+
+		/*public void DisconnectClient(NetWreckClient Cli) {
+			Cli.State = ClientState.Disconnected;
+
+			NetPacket P = AllocPacket();
+			P.PacketNum = 0;
+			P.Payload = new byte[0];
+			P.Type = PacketType.Disconnect;
+			SendPacket(P, Cli);
+			FreePacket(P);
+		}*/
 
 		public void StartUpdateLoop() {
 			Thread UpdateThread = new Thread(() => {
 				while (true) {
-					Update();
+					if (IsServer)
+						UpdateServer();
+					else
+						UpdateClient();
+
+					Thread.Sleep(0);
 				}
 			});
 
@@ -133,6 +376,10 @@ namespace Netwrecking {
 			UDP.Send(Data, Length, EndPoint);
 		}
 
+		public void SendRaw(byte[] Data, int Length, NetWreckClient Cli) {
+			SendRaw(Data, Length, Cli.SenderEndPoint);
+		}
+
 		public void SendRaw<T>(T Msg, IPEndPoint EndPoint) where T : unmanaged {
 			byte[] MsgBuffer = new byte[sizeof(T)];
 			T* MsgPtr = &Msg;
@@ -147,11 +394,30 @@ namespace Netwrecking {
 			SendRaw(Data, Data.Length, CreateEndPoint(IP, Port));
 		}
 
-		byte[] ReceiveRaw(ref IPEndPoint Sender) {
+		bool ReceiveRaw(ref IPEndPoint Sender, out byte[] Data) {
 			if (Sender == null)
 				Sender = new IPEndPoint(IPAddress.Any, Port);
 
-			return UDP.Receive(ref Sender);
+			if (UDP.Available > 0) {
+				try {
+					Data = UDP.Receive(ref Sender);
+					return true;
+				} catch (SocketException E) {
+				}
+			}
+
+			Data = null;
+			return false;
+		}
+
+		public void SendPacket(NetPacket Packet, NetWreckClient Cli) {
+			byte[] Arr = ByteArrayPool.Rent(MaxDataSize);
+			int Len = WreckUtils.Serialize(Packet, Arr, MaxDataSize);
+
+			SendRaw(Arr, Len, Cli);
+			Cli.TimeSent = Timestamp();
+
+			ByteArrayPool.Return(Arr);
 		}
 
 		/*void SendPacket(NetPacket P, string IP, int Port) {
