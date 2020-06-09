@@ -89,7 +89,6 @@ namespace Netwrecking {
 	public delegate void OnPacketReceivedFunc(NetPacket Packet);
 
 	public unsafe class NetWreck {
-		const bool IS_DEBUG = true;
 		const int MaxDataSize = 1024;
 
 		public static IPEndPoint CreateEndPoint(string IP, int Port) {
@@ -143,6 +142,8 @@ namespace Netwrecking {
 		}
 
 		public void ConnectToServer(IPEndPoint Server) {
+			DebugPrint("Starting connection to server");
+
 			ServerConnectionClient = new NetWreckClient(Server);
 			ServerConnectionClient.State = ClientState.Connecting;
 		}
@@ -155,9 +156,7 @@ namespace Netwrecking {
 				WreckUtils.Deserialize(Raw, ref Packet);
 
 				if (!Packet.PacketValid) {
-					if (IS_DEBUG)
-						Console.WriteLine("Dropping invalid packet");
-
+					DebugPrint("Dropping invalid packet");
 					return;
 				}
 
@@ -410,6 +409,22 @@ namespace Netwrecking {
 			return false;
 		}
 
+		bool ReceivePacket(ref IPEndPoint Sender, out NetPacket Packet) {
+			if (ReceiveRaw(ref Sender, out byte[] Raw)) {
+				Packet = AllocPacket();
+				WreckUtils.Deserialize(Raw, ref Packet);
+
+				if (!Packet.PacketValid) {
+				
+				}
+
+				return true;
+			}
+
+			Packet = null;
+			return false;
+		}
+
 		public void SendPacket(NetPacket Packet, NetWreckClient Cli) {
 			byte[] Arr = ByteArrayPool.Rent(MaxDataSize);
 			int Len = WreckUtils.Serialize(Packet, Arr, MaxDataSize);
@@ -457,5 +472,13 @@ namespace Netwrecking {
 		public byte[] Receive() {
 			return null;
 		}*/
+
+		static void DebugPrint(string Str) {
+			Console.WriteLine(Str);
+		}
+
+		static void DebugPrint(string Fmt, params object[] Args) {
+			DebugPrint(string.Format(Fmt, Args));
+		}
 	}
 }

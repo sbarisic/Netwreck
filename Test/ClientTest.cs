@@ -11,9 +11,6 @@ namespace ClientTest {
 	class Program {
 		static void Main(string[] Args) {
 			Console.Title = "Client Test";
-			Thread.Sleep(1000);
-			Console.WriteLine("Starting");
-
 			NetWreck NW = new NetWreck(42001);
 			NetWreckClient Srv = null;
 
