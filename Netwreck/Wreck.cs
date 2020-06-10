@@ -51,6 +51,7 @@ namespace Netwrecking {
 
 		public void Deserialize(BinaryReader Reader) {
 			PacketValid = true;
+			long StartPos = Reader.BaseStream.Position;
 
 			if (Reader.ReadInt32() != PacketHashNum) {
 				PacketValid = false;
@@ -58,7 +59,18 @@ namespace Netwrecking {
 			}
 
 			Type = (PacketType)Reader.ReadByte();
-			Payload = Reader.ReadBytes(Reader.ReadUInt16());
+
+			ushort PayloadLen = Reader.ReadUInt16();
+			if (PayloadLen > NetWreck.MaxDataSize) {
+				PacketValid = false;
+				return;
+			}
+
+			Payload = Reader.ReadBytes(PayloadLen);
+
+			int Len = (int)(Reader.BaseStream.Position - StartPos);
+			if (Len > NetWreck.MaxDataSize)
+				PacketValid = false;
 		}
 	}
 
@@ -89,7 +101,7 @@ namespace Netwrecking {
 	public delegate void OnPacketReceivedFunc(NetPacket Packet);
 
 	public unsafe class NetWreck {
-		const int MaxDataSize = 1024;
+		internal const int MaxDataSize = 1024;
 
 		public static IPEndPoint CreateEndPoint(string IP, int Port) {
 			return new IPEndPoint(IPAddress.Parse(IP), Port);
@@ -151,15 +163,7 @@ namespace Netwrecking {
 		void UpdateServer() {
 			IPEndPoint Sender = null;
 
-			if (ReceiveRaw(ref Sender, out byte[] Raw)) {
-				NetPacket Packet = AllocPacket();
-				WreckUtils.Deserialize(Raw, ref Packet);
-
-				if (!Packet.PacketValid) {
-					DebugPrint("Dropping invalid packet");
-					return;
-				}
-
+			if (ReceivePacket(ref Sender, out NetPacket Packet)) {
 				NetWreckClient Cli = FindOrCreateClient(Sender);
 
 				Cli.TimeReceived = Timestamp();
@@ -212,19 +216,7 @@ namespace Netwrecking {
 			if (ServerConnectionClient == null)
 				return;
 
-			IPEndPoint ServerEndPoint = ServerConnectionClient.SenderEndPoint;
-
-			if (ReceiveRaw(ref ServerEndPoint, out byte[] Raw)) {
-				NetPacket Packet = AllocPacket();
-				WreckUtils.Deserialize(Raw, ref Packet);
-
-				if (!Packet.PacketValid) {
-					if (IS_DEBUG)
-						Console.WriteLine("Dropping invalid packet");
-
-					return;
-				}
-
+			if (ReceivePacket(ref ServerConnectionClient.SenderEndPoint, out NetPacket Packet)) {
 				ServerConnectionClient.TimeReceived = Timestamp();
 				Packet.Sender = ServerConnectionClient;
 
@@ -415,7 +407,11 @@ namespace Netwrecking {
 				WreckUtils.Deserialize(Raw, ref Packet);
 
 				if (!Packet.PacketValid) {
-				
+					DebugPrint("Dropping invalid packet");
+
+					FreePacket(Packet);
+					Packet = null;
+					return false;
 				}
 
 				return true;
@@ -474,7 +470,7 @@ namespace Netwrecking {
 		}*/
 
 		static void DebugPrint(string Str) {
-			Console.WriteLine(Str);
+			Console.WriteLine("[DBG] {0}", Str);
 		}
 
 		static void DebugPrint(string Fmt, params object[] Args) {
