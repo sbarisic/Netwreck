@@ -46,6 +46,9 @@
     <Reference Include="System.Xml" />
   </ItemGroup>
   <ItemGroup>
+    <Compile Include="CRC32\Crc32Algorithm.cs" />
+    <Compile Include="CRC32\Crc32CAlgorithm.cs" />
+    <Compile Include="CRC32\SafeProxy.cs" />
     <Compile Include="NetworkSerializable.cs" />
     <Compile Include="Wreck.cs" />
     <Compile Include="Properties\AssemblyInfo.cs" />

@@ -9,6 +9,10 @@ namespace Netwrecking {
 	interface NetworkSerializable {
 		void Serialize(BinaryWriter Writer);
 
-		void Deserialize(BinaryReader Reader);
+		bool Deserialize(BinaryReader Reader);
+
+		bool IsValid();
+
+		void SetIsValid(bool IsValid);
 	}
 }
